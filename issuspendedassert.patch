@@ -1,0 +1,36 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  b8e072f662e0ebecfaa507aa3c3e165d43da6247
+
+diff --git a/dom/workers/SharedWorker.cpp b/dom/workers/SharedWorker.cpp
+--- a/dom/workers/SharedWorker.cpp
++++ b/dom/workers/SharedWorker.cpp
+@@ -83,26 +83,26 @@ SharedWorker::Port()
+   nsRefPtr<MessagePort> messagePort = mMessagePort;
+   return messagePort.forget();
+ }
+ 
+ void
+ SharedWorker::Suspend()
+ {
+   AssertIsOnMainThread();
+-  MOZ_ASSERT(!IsSuspended());
++  //MOZ_ASSERT(!IsSuspended());
+ 
+   mSuspended = true;
+ }
+ 
+ void
+ SharedWorker::Resume()
+ {
+   AssertIsOnMainThread();
+-  MOZ_ASSERT(IsSuspended());
++  //MOZ_ASSERT(IsSuspended());
+ 
+   mSuspended = false;
+ 
+   if (!mSuspendedEvents.IsEmpty()) {
+     nsTArray<nsCOMPtr<nsIDOMEvent>> events;
+     mSuspendedEvents.SwapElements(events);
+ 
+     for (uint32_t index = 0; index < events.Length(); index++) {

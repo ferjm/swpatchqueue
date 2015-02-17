@@ -1,0 +1,83 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  a84d9eadacc56662590ef70057be936bfc1735cb
+network.disable.ipc.security for B2G
+
+diff --git a/b2g/app/b2g.js b/b2g/app/b2g.js
+--- a/b2g/app/b2g.js
++++ b/b2g/app/b2g.js
+@@ -1114,8 +1114,10 @@ pref("dom.requestSync.enabled", true);
+ pref("gfx.vsync.hw-vsync.enabled", true);
+ pref("gfx.vsync.compositor", true);
+ pref("gfx.touch.resample", true);
+ #else
+ pref("gfx.vsync.hw-vsync.enabled", false);
+ pref("gfx.vsync.compositor", false);
+ pref("gfx.touch.resample", false);
+ #endif
++
++pref("network.disable.ipc.security", true);
+diff --git a/dom/workers/ServiceWorkerManager.cpp b/dom/workers/ServiceWorkerManager.cpp
+--- a/dom/workers/ServiceWorkerManager.cpp
++++ b/dom/workers/ServiceWorkerManager.cpp
+@@ -2291,17 +2291,18 @@ ServiceWorkerManager::DispatchFetchEvent
+ 
+     nsRefPtr<ServiceWorkerRegistrationInfo> registration =
+         GetServiceWorkerRegistrationInfo(uri);
+     // This should only happen if IsAvailableForURI() returned true.
+     MOZ_ASSERT(registration);
+     MOZ_ASSERT(registration->mActiveWorker);
+ 
+     nsRefPtr<ServiceWorker> sw;
+-    rv = CreateServiceWorker(registration->mActiveWorker->ScriptSpec(),
++    rv = CreateServiceWorker(registration->mPrincipal,
++                             registration->mActiveWorker->ScriptSpec(),
+                              registration->mScope,
+                              getter_AddRefs(sw));
+     serviceWorker = sw.forget();
+   }
+ 
+   if (NS_WARN_IF(NS_FAILED(rv))) {
+     return rv;
+   }
+diff --git a/dom/workers/WorkerPrivate.cpp b/dom/workers/WorkerPrivate.cpp
+--- a/dom/workers/WorkerPrivate.cpp
++++ b/dom/workers/WorkerPrivate.cpp
+@@ -2657,16 +2657,17 @@ WorkerPrivateParent<Derived>::Resume(JSC
+   AssertIsOnParentThread();
+   MOZ_ASSERT(aCx);
+   MOZ_ASSERT_IF(IsDedicatedWorker(), mParentSuspended);
+ 
+   // Shared workers are resumed if any of their owning documents are resumed.
+   // It can happen that mSharedWorkers is empty but this thread has not been
+   // unregistered yet.
+   if ((IsSharedWorker() || IsServiceWorker()) && mSharedWorkers.Count()) {
++    printf_stderr("WorkerPrivateParent::Resume %d", IsServiceWorker());
+     AssertIsOnMainThread();
+ 
+     struct Closure
+     {
+       nsPIDOMWindow* mWindow;
+       bool mAnyRunning;
+ 
+       explicit Closure(nsPIDOMWindow* aWindow)
+@@ -2730,18 +2731,18 @@ WorkerPrivateParent<Derived>::Resume(JSC
+   // Only top-level workers should have a synchronize runnable.
+   MOZ_ASSERT_IF(mSynchronizeRunnable.get(), !GetParent());
+   mSynchronizeRunnable.Revoke();
+ 
+   // Execute queued runnables before waking up the worker, otherwise the worker
+   // could post new messages before we run those that have been queued.
+   if (!mQueuedRunnables.IsEmpty()) {
+     AssertIsOnMainThread();
++    //MOZ_ASSERT(IsDedicatedWorker() || IsServiceWorker());
+     MOZ_ASSERT(IsDedicatedWorker());
+-
+     nsTArray<nsCOMPtr<nsIRunnable>> runnables;
+     mQueuedRunnables.SwapElements(runnables);
+ 
+     for (uint32_t index = 0; index < runnables.Length(); index++) {
+       runnables[index]->Run();
+     }
+   }
+ 

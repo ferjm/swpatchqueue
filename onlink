@@ -1,0 +1,135 @@
+# HG changeset patch
+# Parent 73283a26c2e0234c4c20b0eeb905f59b09276bfd
+# User Vivien Nicolas <vnicolas@mozilla.com>
+
+diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
+--- a/docshell/base/nsDocShell.cpp
++++ b/docshell/base/nsDocShell.cpp
+@@ -13125,16 +13125,36 @@ nsDocShell::OnLinkClick(nsIContent* aCon
+     nsAutoString oldTarget(aTargetSpec);
+     rv = browserChrome3->OnBeforeLinkTraversal(oldTarget, aURI,
+                                                linkNode, mIsAppTab, target);
+   }
+   
+   if (NS_FAILED(rv))
+     target = aTargetSpec;  
+ 
++
++#ifdef MOZ_B2G
++  if (XRE_GetProcessType() == GeckoProcessType_Content) {
++    nsDependentString name(target.get());
++    if (name.LowerCaseEqualsLiteral("_blank")) {
++      nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
++      if (obs) {
++        nsIDocument* doc = GetDocument();
++        if (doc) {
++          nsAutoString spec;
++          nsContentUtils::GetUTFOrigin(aURI, spec);
++          obs->NotifyObservers(doc, "on-link-click", spec.get());
++        }
++      }
++    }
++
++    return NS_OK;
++  }
++#endif
++
+   nsCOMPtr<nsIRunnable> ev =
+       new OnLinkClickEvent(this, aContent, aURI, target.get(), aFileName, 
+                            aPostDataStream, aHeadersDataStream, aIsTrusted);
+   return NS_DispatchToCurrentThread(ev);
+ }
+ 
+ NS_IMETHODIMP
+ nsDocShell::OnLinkClickSync(nsIContent *aContent,
+diff --git a/dom/browser-element/BrowserElementChildPreload.js b/dom/browser-element/BrowserElementChildPreload.js
+--- a/dom/browser-element/BrowserElementChildPreload.js
++++ b/dom/browser-element/BrowserElementChildPreload.js
+@@ -49,17 +49,18 @@ function sendSyncMsg(msg, data) {
+ 
+ let CERTIFICATE_ERROR_PAGE_PREF = 'security.alternate_certificate_error_page';
+ 
+ const OBSERVED_EVENTS = [
+   'fullscreen-origin-change',
+   'ask-parent-to-exit-fullscreen',
+   'ask-parent-to-rollback-fullscreen',
+   'xpcom-shutdown',
+-  'activity-done'
++  'activity-done',
++  'on-link-click'
+ ];
+ 
+ const COMMAND_MAP = {
+   'cut': 'cmd_cut',
+   'copy': 'cmd_copyAndCollapseToEnd',
+   'paste': 'cmd_paste',
+   'selectall': 'cmd_selectAll'
+ };
+@@ -267,16 +268,19 @@ BrowserElementChild.prototype = {
+         sendAsyncMsg('exit-fullscreen');
+         break;
+       case 'ask-parent-to-rollback-fullscreen':
+         sendAsyncMsg('rollback-fullscreen');
+         break;
+       case 'activity-done':
+         sendAsyncMsg('activitydone', { success: (data == 'activity-success') });
+         break;
++      case 'on-link-click':
++        sendAsyncMsg('on-link-click', { href: data });
++        break;
+       case 'xpcom-shutdown':
+         this._shuttingDown = true;
+         break;
+     }
+   },
+ 
+   /**
+    * Called when our TabChildGlobal starts to die.  This is not called when the
+diff --git a/dom/browser-element/BrowserElementParent.js b/dom/browser-element/BrowserElementParent.js
+--- a/dom/browser-element/BrowserElementParent.js
++++ b/dom/browser-element/BrowserElementParent.js
+@@ -189,16 +189,17 @@ BrowserElementParent.prototype = {
+       "got-purge-history": this._gotDOMRequestResult,
+       "got-screenshot": this._gotDOMRequestResult,
+       "got-contentdimensions": this._gotDOMRequestResult,
+       "got-can-go-back": this._gotDOMRequestResult,
+       "got-can-go-forward": this._gotDOMRequestResult,
+       "fullscreen-origin-change": this._remoteFullscreenOriginChange,
+       "rollback-fullscreen": this._remoteFrameFullscreenReverted,
+       "exit-fullscreen": this._exitFullscreen,
++      "on-link-click": this._onLinkClick,
+       "got-visible": this._gotDOMRequestResult,
+       "visibilitychange": this._childVisibilityChange,
+       "got-set-input-method-active": this._gotDOMRequestResult,
+       "selectionstatechanged": this._handleSelectionStateChanged,
+       "scrollviewchange": this._handleScrollViewChange,
+       "touchcarettap": this._handleTouchCaretTap
+     };
+ 
+@@ -856,16 +857,26 @@ BrowserElementParent.prototype = {
+ 
+     this._fireEventFromMsg(data);
+   },
+ 
+   _exitFullscreen: function() {
+     this._windowUtils.exitFullscreen();
+   },
+ 
++  _onLinkClick: function(data) {
++    let detail = {
++      url: data.json.href,
++      frameElement: null
++    };
++    let evt = this._createEvent('openwindow', detail,
++                                /* cancelable = */ false);
++    this._frameElement.dispatchEvent(evt);
++  },
++
+   _remoteFullscreenOriginChange: function(data) {
+     let origin = data.json._payload_;
+     this._windowUtils.remoteFrameFullscreenChanged(this._frameElement, origin);
+   },
+ 
+   _remoteFrameFullscreenReverted: function(data) {
+     this._windowUtils.remoteFrameFullscreenReverted();
+   },

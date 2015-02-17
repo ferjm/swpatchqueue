@@ -1,0 +1,178 @@
+# HG changeset patch
+# Parent 7cf7adaa623ec5294190ea49ee969a5f7a8ed706
+# User Andrea Marchesini <amarchesini@mozilla.com>
+
+diff --git a/dom/workers/WorkerPrivate.cpp b/dom/workers/WorkerPrivate.cpp
+--- a/dom/workers/WorkerPrivate.cpp
++++ b/dom/workers/WorkerPrivate.cpp
+@@ -3941,16 +3941,17 @@ WorkerPrivate::WorkerPrivate(JSContext* 
+   , mCloseHandlerStarted(false)
+   , mCloseHandlerFinished(false)
+   , mMemoryReporterRunning(false)
+   , mBlockedForMemoryReporter(false)
+   , mCancelAllPendingRunnables(false)
+   , mPeriodicGCTimerRunning(false)
+   , mIdleGCTimerRunning(false)
+   , mWorkerScriptExecutedSuccessfully(false)
++  , mPerformingMicroTasks(false)
+ {
+   MOZ_ASSERT_IF(!IsDedicatedWorker(), !aSharedWorkerName.IsVoid());
+   MOZ_ASSERT_IF(IsDedicatedWorker(), aSharedWorkerName.IsEmpty());
+ 
+   if (aParent) {
+     aParent->AssertIsOnWorkerThread();
+     aParent->GetAllPreferences(mPreferences);
+     mOnLine = aParent->OnLine();
+@@ -4478,17 +4479,19 @@ WorkerPrivate::DoRunLoop(JSContext* aCx)
+     // Start the periodic GC timer if it is not already running.
+     SetGCTimerMode(PeriodicTimer);
+ 
+     // Process a single runnable from the main queue.
+     MOZ_ALWAYS_TRUE(NS_ProcessNextEvent(mThread, false));
+ 
+     // Only perform the Promise microtask checkpoint on the outermost event
+     // loop.  Don't run it, for example, during sync XHR or importScripts.
++    mPerformingMicroTasks = true;
+     (void)Promise::PerformMicroTaskCheckpoint();
++    mPerformingMicroTasks = false;
+ 
+     if (NS_HasPendingEvents(mThread)) {
+       // Now *might* be a good time to GC. Let the JS engine make the decision.
+       if (workerCompartment) {
+         JS_MaybeGC(aCx);
+       }
+     }
+     else {
+@@ -4563,16 +4566,22 @@ WorkerPrivate::RunBeforeNextEvent(nsIRun
+ 
+   preemptingRunnableInfo->mRunnable = aRunnable;
+ 
+   // Due to the weird way that the thread recursion counter is implemented we
+   // subtract one from the recursion level if we have one.
+   preemptingRunnableInfo->mRecursionDepth =
+     recursionDepth ? recursionDepth - 1 : 0;
+ 
++  // If this operation is scheduled by a promise, the recursionDepth is
++  // already been decremented.
++  if (mPerformingMicroTasks) {
++    ++preemptingRunnableInfo->mRecursionDepth;
++  }
++
+   // Ensure that we have a pending event so that the runnable will be guaranteed
+   // to run.
+   if (mPreemptingRunnableInfos.Length() == 1 && !NS_HasPendingEvents(mThread)) {
+     nsRefPtr<DummyRunnable> dummyRunnable = new DummyRunnable(this);
+     if (NS_FAILED(Dispatch(dummyRunnable))) {
+       NS_WARNING("RunBeforeNextEvent called after the thread is shutting "
+                  "down!");
+       mPreemptingRunnableInfos.Clear();
+diff --git a/dom/workers/WorkerPrivate.h b/dom/workers/WorkerPrivate.h
+--- a/dom/workers/WorkerPrivate.h
++++ b/dom/workers/WorkerPrivate.h
+@@ -892,16 +892,17 @@ class WorkerPrivate : public WorkerPriva
+   bool mCloseHandlerFinished;
+   bool mMemoryReporterRunning;
+   bool mBlockedForMemoryReporter;
+   bool mCancelAllPendingRunnables;
+   bool mPeriodicGCTimerRunning;
+   bool mIdleGCTimerRunning;
+   bool mWorkerScriptExecutedSuccessfully;
+   bool mPreferences[WORKERPREF_COUNT];
++  bool mPerformingMicroTasks;
+   bool mOnLine;
+ 
+ protected:
+   ~WorkerPrivate();
+ 
+ public:
+   static already_AddRefed<WorkerPrivate>
+   Constructor(const GlobalObject& aGlobal, const nsAString& aScriptURL,
+diff --git a/dom/workers/test/mochitest.ini b/dom/workers/test/mochitest.ini
+--- a/dom/workers/test/mochitest.ini
++++ b/dom/workers/test/mochitest.ini
+@@ -94,16 +94,17 @@ support-files =
+   worker_driver.js
+   worker_wrapper.js
+   bug1060621_worker.js
+   bug1062920_worker.js
+   webSocket_sharedWorker.js
+   bug1104064_worker.js
+   worker_consoleAndBlobs.js
+   bug1132395_sharedWorker.js
++  worker_bug1132436.js
+ 
+ [test_404.html]
+ [test_atob.html]
+ [test_blobConstructor.html]
+ [test_blobWorkers.html]
+ [test_bug1002702.html]
+ [test_bug949946.html]
+ [test_bug1010784.html]
+@@ -196,8 +197,9 @@ skip-if = buildapp == 'b2g' || toolkit =
+ [test_bug1062920.html]
+ [test_bug978260.html]
+ [test_webSocket_sharedWorker.html]
+ skip-if = buildapp == 'b2g' || toolkit == 'android' || e10s #bug 982828
+ [test_websocket_pref.html]
+ [test_bug1104064.html]
+ [test_consoleAndBlobs.html]
+ [test_bug1132395.html]
++[test_bug1132436.html]
+diff --git a/dom/workers/test/test_bug1132436.html b/dom/workers/test/test_bug1132436.html
+new file mode 100644
+--- /dev/null
++++ b/dom/workers/test/test_bug1132436.html
+@@ -0,0 +1,28 @@
++<!--
++  Any copyright is dedicated to the Public Domain.
++  http://creativecommons.org/publicdomain/zero/1.0/
++-->
++<!DOCTYPE HTML>
++<html>
++<head>
++  <title>Test for 1132436</title>
++  <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
++  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
++</head>
++<body>
++
++<script class="testbody" type="text/javascript">
++
++var a = new Worker('worker_bug1132436.js');
++a.postMessage('go');
++a.onmessage = function() {
++  ok(true, "Still alive.");
++  SimpleTest.finish();
++}
++
++SimpleTest.waitForExplicitFinish();
++
++</script>
++</pre>
++</body>
++</html>
+diff --git a/dom/workers/test/worker_bug1132436.js b/dom/workers/test/worker_bug1132436.js
+new file mode 100644
+--- /dev/null
++++ b/dom/workers/test/worker_bug1132436.js
+@@ -0,0 +1,20 @@
++onmessage = function(e) {
++  var req = indexedDB.open("foobar", 1);
++
++  req.onupgradeneeded = function (e) {
++    e.target.result.createObjectStore("store");
++  };
++
++  req.onsuccess = function (e) {
++    Promise.resolve().then(function(val) {
++      var idb = e.target.result;
++      var txn = idb.transaction(["store"], 'readwrite');
++      var req = txn.objectStore("store").get("store");
++      req.onsuccess = function (e) {
++        var txn = idb.transaction(["store"], 'readonly');
++        postMessage('good so far.');
++      }
++    });
++  };
++}
++

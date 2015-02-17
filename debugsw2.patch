@@ -1,0 +1,354 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  f9a39a77c0c1e9a8ade6e2559aee9c2a6127fe1b
+
+diff --git a/dom/workers/ServiceWorkerManager.cpp b/dom/workers/ServiceWorkerManager.cpp
+--- a/dom/workers/ServiceWorkerManager.cpp
++++ b/dom/workers/ServiceWorkerManager.cpp
+@@ -87,18 +87,22 @@ PopulateRegistrationData(nsIPrincipal* a
+   rv = PrincipalToPrincipalInfo(aPrincipal, &aData.principal());
+   if (NS_WARN_IF(NS_FAILED(rv))) {
+     return rv;
+   }
+ 
+   aData.scope() = aRegistration->mScope;
+   aData.scriptSpec() = aRegistration->mScriptSpec;
+ 
+-  if (aRegistration->mActiveWorker) {
++  printf_stderr("Populating service worker registration data\n");
++  if (aRegistration->mActiveWorker) {    
+     aData.currentWorkerURL() = aRegistration->mActiveWorker->GetScriptSpec();
++    printf_stderr("currentWorkerURL set\n");
++  } else {
++    printf_stderr("No active worker == no currentWorkerURL\n");
+   }
+ 
+   return NS_OK;
+ }
+ 
+ } // Anonymous namespace
+ 
+ NS_IMPL_ISUPPORTS0(ServiceWorkerJob)
+@@ -177,16 +181,17 @@ NS_INTERFACE_MAP_BEGIN(ServiceWorkerMana
+     foundInterface = static_cast<nsIServiceWorkerManager*>(this);
+   else
+   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIServiceWorkerManager)
+ NS_INTERFACE_MAP_END
+ 
+ ServiceWorkerManager::ServiceWorkerManager()
+   : mActor(nullptr)
+ {
++  printf_stderr("ServiceWorkerManager constructor\n");
+   // Register this component to PBackground.
+   MOZ_ALWAYS_TRUE(BackgroundChild::GetOrCreateForCurrentThread(this));
+ 
+   if (XRE_GetProcessType() == GeckoProcessType_Default) {
+     nsRefPtr<ServiceWorkerRegistrar> swr = ServiceWorkerRegistrar::Get();
+     MOZ_ASSERT(swr);
+ 
+     nsTArray<ServiceWorkerRegistrationData> data;
+@@ -493,16 +498,17 @@ public:
+     , mRegistration(aRegistration)
+     , mCallback(aCallback)
+     , mJobType(UPDATE_JOB)
+   { }
+ 
+   void
+   Start() MOZ_OVERRIDE
+   {
++    printf_stderr("ServiceWorkerRegisterJob::Start()\n");
+     MOZ_ASSERT(NS_IsMainThread());
+ 
+     nsRefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+     if (!swm->HasBackgroundActor()) {
+       nsCOMPtr<nsIRunnable> runnable =
+         NS_NewRunnableMethod(this, &ServiceWorkerRegisterJob::Start);
+       swm->AppendPendingOperation(runnable);
+       return;
+@@ -510,30 +516,37 @@ public:
+ 
+     if (mJobType == REGISTER_JOB) {
+       nsRefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+       nsRefPtr<ServiceWorkerManager::ServiceWorkerDomainInfo> domainInfo =
+         swm->GetDomainInfo(mScope);
+       MOZ_ASSERT(domainInfo);
+       mRegistration = domainInfo->GetRegistration(mScope);
+ 
++      printf_stderr("ServiceWorkerRegisterJob\n");
+       if (mRegistration) {
++        printf_stderr("ServiceWorkerRegisterJob - We have mRegistration\n");
+         nsRefPtr<ServiceWorkerInfo> newest = mRegistration->Newest();
+         if (newest && mScriptSpec.Equals(newest->GetScriptSpec()) &&
+             mScriptSpec.Equals(mRegistration->mScriptSpec)) {
+           mRegistration->mPendingUninstall = false;
+           Succeed();
+           Done(NS_OK);
+           return;
+         }
+       } else {
++        printf_stderr("ServiceWorkerRegisterJob - Need to create new registration\n");
+         mRegistration = domainInfo->CreateNewRegistration(mScope, mPrincipal);
+       }
+ 
+       mRegistration->mScriptSpec = mScriptSpec;
++
++      //mRegistration->mActiveWorker =
++      //  new ServiceWorkerInfo(mRegistration, mScriptSpec);
++
+       swm->StoreRegistration(mPrincipal, mRegistration);
+     } else {
+       MOZ_ASSERT(mJobType == UPDATE_JOB);
+     }
+ 
+     Update();
+   }
+ 
+@@ -617,16 +630,17 @@ public:
+     mCallback->UpdateFailed(aError);
+     FailCommon(NS_ERROR_DOM_JS_EXCEPTION);
+   }
+ 
+   // Public so our error handling code can continue with a successful worker.
+   void
+   ContinueInstall()
+   {
++    printf_stderr("ContinueInstall\n");
+     nsRefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+     nsRefPtr<ServiceWorkerManager::ServiceWorkerDomainInfo> domainInfo =
+       swm->GetDomainInfo(mRegistration->mScope);
+     MOZ_ASSERT(domainInfo);
+     MOZ_ASSERT(domainInfo->mSetOfScopesBeingUpdated.Contains(mRegistration->mScope));
+     domainInfo->mSetOfScopesBeingUpdated.Remove(mRegistration->mScope);
+ 
+     if (mRegistration->mInstallingWorker) {
+@@ -768,16 +782,17 @@ private:
+       MOZ_ASSERT(domainInfo);
+       domainInfo->RemoveRegistration(mRegistration);
+     }
+   }
+ 
+   void
+   ContinueAfterInstallEvent(bool aSuccess, bool aActivateImmediately)
+   {
++    printf_stderr("ContinueAfterInstallEvent\n");
+     // By this point the callback should've been notified about success or fail
+     // and nulled.
+     MOZ_ASSERT(!mCallback);
+ 
+     if (!mRegistration->mInstallingWorker) {
+       NS_WARNING("mInstallingWorker was null.");
+       return Done(NS_ERROR_DOM_ABORT_ERR);
+     }
+@@ -1273,16 +1288,17 @@ public:
+     nsRefPtr<ServiceWorkerManager::ServiceWorkerDomainInfo> domainInfo =
+       swm->GetDomainInfo(docURI);
+ 
+     if (!domainInfo) {
+       mPromise->MaybeResolve(array);
+       return NS_OK;
+     }
+ 
++    printf_stderr("Getting registrations - length  %d \n", domainInfo->mOrderedScopes.Length());
+     for (uint32_t i = 0; i < domainInfo->mOrderedScopes.Length(); ++i) {
+       NS_ConvertUTF8toUTF16 scope(domainInfo->mOrderedScopes[i]);
+       nsRefPtr<ServiceWorkerRegistration> swr =
+         new ServiceWorkerRegistration(mWindow, scope);
+ 
+       array.AppendElement(swr);
+     }
+ 
+@@ -1292,16 +1308,17 @@ public:
+ };
+ 
+ // If we return an error code here, the ServiceWorkerContainer will
+ // automatically reject the Promise.
+ NS_IMETHODIMP
+ ServiceWorkerManager::GetRegistrations(nsIDOMWindow* aWindow,
+                                        nsISupports** aPromise)
+ {
++  printf_stderr("GetRegistrations\n");
+   AssertIsOnMainThread();
+   MOZ_ASSERT(aWindow);
+ 
+   // XXXnsm Don't allow chrome callers for now, we don't support chrome
+   // ServiceWorkers.
+   MOZ_ASSERT(!nsContentUtils::IsCallerChrome());
+ 
+   nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aWindow);
+@@ -1798,16 +1815,17 @@ ServiceWorkerManager::CreateServiceWorke
+ }
+ 
+ void
+ ServiceWorkerManager::LoadRegistrations(
+                   const nsTArray<ServiceWorkerRegistrationData>& aRegistrations)
+ {
+   AssertIsOnMainThread();
+ 
++  printf_stderr("LoadRegistrations length %d\n", aRegistrations.Length());
+   for (uint32_t i = 0, len = aRegistrations.Length(); i < len; ++i) {
+     nsCOMPtr<nsIPrincipal> principal =
+       PrincipalInfoToPrincipal(aRegistrations[i].principal());
+     if (!principal) {
+       continue;
+     }
+ 
+     nsAutoString tmp;
+@@ -1863,28 +1881,30 @@ void
+ ServiceWorkerManager::StoreRegistration(
+                                    nsIPrincipal* aPrincipal,
+                                    ServiceWorkerRegistrationInfo* aRegistration)
+ {
+   MOZ_ASSERT(mActor);
+   MOZ_ASSERT(aPrincipal);
+   MOZ_ASSERT(aRegistration);
+ 
++  printf_stderr("StoreRegistration\n");
+   ServiceWorkerRegistrationData data;
+   nsresult rv = PopulateRegistrationData(aPrincipal, aRegistration, data);
+   if (NS_WARN_IF(NS_FAILED(rv))) {
+     return;
+   }
+ 
+   PrincipalInfo principalInfo;
+   if (NS_WARN_IF(NS_FAILED(PrincipalToPrincipalInfo(aPrincipal,
+                                                     &principalInfo)))) {
+     return;
+   }
+ 
++  printf_stderr("Sending RegisterServiceWorker\n");
+   mActor->SendRegisterServiceWorker(data);
+ }
+ 
+ already_AddRefed<ServiceWorkerRegistrationInfo>
+ ServiceWorkerManager::GetServiceWorkerRegistrationInfo(nsPIDOMWindow* aWindow)
+ {
+   nsCOMPtr<nsIDocument> document = aWindow->GetExtantDoc();
+   return GetServiceWorkerRegistrationInfo(document);
+diff --git a/dom/workers/ServiceWorkerManager.h b/dom/workers/ServiceWorkerManager.h
+--- a/dom/workers/ServiceWorkerManager.h
++++ b/dom/workers/ServiceWorkerManager.h
+@@ -152,17 +152,20 @@ public:
+   already_AddRefed<ServiceWorkerInfo>
+   Newest()
+   {
+     nsRefPtr<ServiceWorkerInfo> newest;
+     if (mInstallingWorker) {
+       newest = mInstallingWorker;
+     } else if (mWaitingWorker) {
+       newest = mWaitingWorker;
+-    } else {
++    } else if (mActiveWorker) {      
++      newest = mActiveWorker;
++    } else {      
++      printf_stderr("NO newest :( \n");
+       newest = mActiveWorker;
+     }
+ 
+     return newest.forget();
+   }
+ 
+   void
+   StartControllingADocument()
+@@ -342,16 +345,17 @@ public:
+       nsRefPtr<ServiceWorkerRegistrationInfo> reg;
+       mServiceWorkerRegistrationInfos.Get(aScope, getter_AddRefs(reg));
+       return reg.forget();
+     }
+ 
+     ServiceWorkerRegistrationInfo*
+     CreateNewRegistration(const nsCString& aScope, nsIPrincipal* aPrincipal)
+     {
++      printf_stderr("Creating new registration\n");
+       ServiceWorkerRegistrationInfo* registration =
+         new ServiceWorkerRegistrationInfo(aScope, aPrincipal);
+       // From now on ownership of registration is with
+       // mServiceWorkerRegistrationInfos.
+       mServiceWorkerRegistrationInfos.Put(aScope, registration);
+       ServiceWorkerManager::AddScope(mOrderedScopes, aScope);
+       return registration;
+     }
+diff --git a/dom/workers/ServiceWorkerRegistrar.cpp b/dom/workers/ServiceWorkerRegistrar.cpp
+--- a/dom/workers/ServiceWorkerRegistrar.cpp
++++ b/dom/workers/ServiceWorkerRegistrar.cpp
+@@ -125,16 +125,17 @@ ServiceWorkerRegistrar::GetRegistrations
+       startTime);
+   }
+ }
+ 
+ void
+ ServiceWorkerRegistrar::RegisterServiceWorker(
+                                      const ServiceWorkerRegistrationData& aData)
+ {
++  printf_stderr("RegisterServiceWorker");
+   AssertIsOnBackgroundThread();
+ 
+   if (mShuttingDown) {
+     NS_WARNING("Failed to register a serviceWorker during shutting down.");
+     return;
+   }
+ 
+   {
+diff --git a/ipc/glue/BackgroundParentImpl.cpp b/ipc/glue/BackgroundParentImpl.cpp
+--- a/ipc/glue/BackgroundParentImpl.cpp
++++ b/ipc/glue/BackgroundParentImpl.cpp
+@@ -412,24 +412,42 @@ private:
+ };
+ 
+ } // anonymous namespace
+ 
+ bool
+ BackgroundParentImpl::RecvRegisterServiceWorker(
+                                      const ServiceWorkerRegistrationData& aData)
+ {
++  printf_stderr("RecvREgisterServiceWorker\n");
+   AssertIsInMainProcess();
+   AssertIsOnBackgroundThread();
+ 
++  if (aData.scope().IsEmpty()) {
++    printf_stderr("Scope empty\n");
++  }
++
++  if (aData.scriptSpec().IsEmpty()) {
++    printf_stderr("scriptSpec empty\n");
++  }
++      
++  if (aData.currentWorkerURL().IsEmpty()) {
++    printf_stderr("currentWorkerURL empty\n");
++  }
++
++  if (aData.principal().type() == PrincipalInfo::TNullPrincipalInfo) {
++    printf_stderr("Null principal info\n");
++  }
++
+   // Basic validation.
+   if (aData.scope().IsEmpty() ||
+       aData.scriptSpec().IsEmpty() ||
+       aData.currentWorkerURL().IsEmpty() ||
+       aData.principal().type() == PrincipalInfo::TNullPrincipalInfo) {
++    printf_stderr("RecvREgisterServiceWorker - early return\n");
+     return false;
+   }
+ 
+   nsRefPtr<RegisterServiceWorkerCallback> callback =
+     new RegisterServiceWorkerCallback(aData);
+ 
+   nsRefPtr<ContentParent> parent = BackgroundParent::GetContentParent(this);
+ 
+@@ -439,16 +457,17 @@ BackgroundParentImpl::RecvRegisterServic
+     return true;
+   }
+ 
+   nsRefPtr<CheckPrincipalRunnable> runnable =
+     new CheckPrincipalRunnable(parent.forget(), aData.principal(), callback);
+   nsresult rv = NS_DispatchToMainThread(runnable);
+   MOZ_ALWAYS_TRUE(NS_SUCCEEDED(rv));
+ 
++  printf_stderr("RecvREgisterServiceWorker - Yay!");
+   return true;
+ }
+ 
+ bool
+ BackgroundParentImpl::RecvUnregisterServiceWorker(
+                                             const PrincipalInfo& aPrincipalInfo,
+                                             const nsString& aScope)
+ {

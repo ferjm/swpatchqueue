@@ -1,0 +1,38 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  a2bd984180d9ce16263d0e45a9ead9f5568033ac
+
+diff --git a/modules/libpref/init/all.js b/modules/libpref/init/all.js
+--- a/modules/libpref/init/all.js
++++ b/modules/libpref/init/all.js
+@@ -4138,17 +4138,17 @@ pref("dom.w3c_pointer_events.enabled", f
+ 
+ // W3C draft ImageCapture API
+ pref("dom.imagecapture.enabled", false);
+ 
+ // W3C touch-action css property (related to touch and pointer events)
+ pref("layout.css.touch_action.enabled", false);
+ 
+ // enable JS dump() function.
+-pref("browser.dom.window.dump.enabled", false);
++pref("browser.dom.window.dump.enabled", true);
+ 
+ #if defined(MOZ_WIDGET_GONK) || defined(MOZ_WIDGET_ANDROID)
+ // Network Information API
+ pref("dom.netinfo.enabled", true);
+ #else
+ pref("dom.netinfo.enabled", false);
+ #endif
+ 
+@@ -4569,8 +4569,11 @@ pref("reader.toolbar.vertical", true);
+ // loaded without sandboxing even if this pref is changed.
+ pref("media.gmp.insecure.allow", false);
+ #endif
+ 
+ // Secure Element API
+ #ifdef MOZ_SECUREELEMENT
+ pref("dom.secureelement.enabled", false);
+ #endif
++
++pref("dom.webcomponents.enabled", true);
++pref("dom.serviceWorkers.testing.enabled", true);

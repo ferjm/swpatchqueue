@@ -1,0 +1,119 @@
+# HG changeset patch
+# Parent f6a9d517bd51a38ef07e2f4dc5262c57bb0ee0f5
+# User Vivien Nicolas <vnicolas@mozilla.com>
+
+diff --git a/dom/ipc/AppProcessChecker.cpp b/dom/ipc/AppProcessChecker.cpp
+--- a/dom/ipc/AppProcessChecker.cpp
++++ b/dom/ipc/AppProcessChecker.cpp
+@@ -139,16 +139,17 @@ AssertAppStatus(TabContext& aContext,
+   return CheckAppStatusHelper(app, aStatus);
+ }
+ 
+ bool
+ AssertAppProcess(PContentParent* aActor,
+                  AssertAppProcessType aType,
+                  const char* aCapability)
+ {
++  return true;
+   nsTArray<TabContext> contextArray =
+     static_cast<ContentParent*>(aActor)->GetManagedTabContext();
+   for (uint32_t i = 0; i < contextArray.Length(); ++i) {
+     if (AssertAppProcess(contextArray[i], aType, aCapability)) {
+       return true;
+     }
+   }
+ 
+@@ -161,16 +162,17 @@ AssertAppProcess(PContentParent* aActor,
+ 
+   return false;
+ }
+ 
+ bool
+ AssertAppStatus(PContentParent* aActor,
+                 unsigned short aStatus)
+ {
++  return true;
+   nsTArray<TabContext> contextArray =
+     static_cast<ContentParent*>(aActor)->GetManagedTabContext();
+   for (uint32_t i = 0; i < contextArray.Length(); ++i) {
+     if (AssertAppStatus(contextArray[i], aStatus)) {
+       return true;
+     }
+   }
+ 
+diff --git a/extensions/cookie/nsPermissionManager.cpp b/extensions/cookie/nsPermissionManager.cpp
+--- a/extensions/cookie/nsPermissionManager.cpp
++++ b/extensions/cookie/nsPermissionManager.cpp
+@@ -1116,21 +1116,25 @@ nsPermissionManager::RemoveAllInternal(b
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPermissionManager::TestExactPermission(nsIURI     *aURI,
+                                          const char *aType,
+                                          uint32_t   *aPermission)
+ {
++  *aPermission = nsIPermissionManager::ALLOW_ACTION;
++  return NS_OK;
++/*
+   nsCOMPtr<nsIPrincipal> principal;
+   nsresult rv = GetPrincipal(aURI, getter_AddRefs(principal));
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+   return TestExactPermissionFromPrincipal(principal, aType, aPermission);
++*/
+ }
+ 
+ NS_IMETHODIMP
+ nsPermissionManager::TestExactPermissionFromPrincipal(nsIPrincipal* aPrincipal,
+                                                       const char* aType,
+                                                       uint32_t* aPermission)
+ {
+   return CommonTestPermission(aPrincipal, aType, aPermission, true, true);
+@@ -1144,21 +1148,25 @@ nsPermissionManager::TestExactPermanentP
+   return CommonTestPermission(aPrincipal, aType, aPermission, true, false);
+ }
+ 
+ NS_IMETHODIMP
+ nsPermissionManager::TestPermission(nsIURI     *aURI,
+                                     const char *aType,
+                                     uint32_t   *aPermission)
+ {
++  *aPermission = nsIPermissionManager::ALLOW_ACTION;
++  return NS_OK;
++/*
+   nsCOMPtr<nsIPrincipal> principal;
+   nsresult rv = GetPrincipal(aURI, getter_AddRefs(principal));
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+   return TestPermissionFromPrincipal(principal, aType, aPermission);
++*/
+ }
+ 
+ NS_IMETHODIMP
+ nsPermissionManager::TestPermissionFromWindow(nsIDOMWindow* aWindow,
+                                               const char* aType,
+                                               uint32_t* aPermission)
+ {
+   nsCOMPtr<nsPIDOMWindow> window = do_QueryInterface(aWindow);
+@@ -1300,16 +1308,20 @@ nsPermissionManager::CommonTestPermissio
+ 
+   uint32_t appId;
+   rv = aPrincipal->GetAppId(&appId);
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+   bool isInBrowserElement;
+   rv = aPrincipal->GetIsInBrowserElement(&isInBrowserElement);
+   NS_ENSURE_SUCCESS(rv, rv);
++  if (isInBrowserElement) {
++    *aPermission = nsIPermissionManager::ALLOW_ACTION;
++    return NS_OK;
++  }
+ 
+   PermissionHashKey* entry = GetPermissionHashKey(host, appId, isInBrowserElement,
+                                                   typeIndex, aExactHostMatch);
+   if (!entry ||
+       (!aIncludingSession &&
+        entry->GetPermission(typeIndex).mNonSessionExpireType ==
+          nsIPermissionManager::EXPIRE_SESSION)) {
+     return NS_OK;

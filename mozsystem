@@ -1,0 +1,26 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  c7ba56c51d54eb02b28f5e93c063115072196843
+
+diff --git a/dom/base/nsXMLHttpRequest.cpp b/dom/base/nsXMLHttpRequest.cpp
+--- a/dom/base/nsXMLHttpRequest.cpp
++++ b/dom/base/nsXMLHttpRequest.cpp
+@@ -1516,17 +1516,17 @@ nsXMLHttpRequest::GetCurrentJARChannel()
+ {
+   nsCOMPtr<nsIJARChannel> appChannel = do_QueryInterface(mChannel);
+   return appChannel.forget();
+ }
+ 
+ bool
+ nsXMLHttpRequest::IsSystemXHR()
+ {
+-  return mIsSystem || nsContentUtils::IsSystemPrincipal(mPrincipal);
++  return true;//mIsSystem || nsContentUtils::IsSystemPrincipal(mPrincipal);
+ }
+ 
+ nsresult
+ nsXMLHttpRequest::CheckChannelForCrossSiteRequest(nsIChannel* aChannel)
+ {
+   // A system XHR (chrome code or a web app with the right permission) can
+   // always perform cross-site requests. In the web app case, however, we
+   // must still check for protected URIs like file:///.

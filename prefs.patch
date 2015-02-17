@@ -1,0 +1,74 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  73f1e6eead97b7950431850be7e36ec3282da3da
+
+diff --git a/b2g/app/b2g.js b/b2g/app/b2g.js
+--- a/b2g/app/b2g.js
++++ b/b2g/app/b2g.js
+@@ -1069,8 +1069,10 @@ pref("dom.mozSettings.SettingsDB.debug.e
+ pref("dom.mozSettings.SettingsManager.debug.enabled", true);
+ pref("dom.mozSettings.SettingsRequestManager.debug.enabled", true);
+ pref("dom.mozSettings.SettingsService.debug.enabled", true);
+ 
+ pref("dom.mozSettings.SettingsDB.verbose.enabled", false);
+ pref("dom.mozSettings.SettingsManager.verbose.enabled", false);
+ pref("dom.mozSettings.SettingsRequestManager.verbose.enabled", false);
+ pref("dom.mozSettings.SettingsService.verbose.enabled", false);
++
++pref("network.disable.ipc.security", true);
+diff --git a/browser/app/profile/firefox.js b/browser/app/profile/firefox.js
+--- a/browser/app/profile/firefox.js
++++ b/browser/app/profile/firefox.js
+@@ -273,17 +273,17 @@ pref("general.skins.selectedSkin", "clas
+ pref("general.smoothScroll", true);
+ #ifdef UNIX_BUT_NOT_MAC
+ pref("general.autoScroll", false);
+ #else
+ pref("general.autoScroll", true);
+ #endif
+ 
+ // At startup, check if we're the default browser and prompt user if not.
+-pref("browser.shell.checkDefaultBrowser", true);
++pref("browser.shell.checkDefaultBrowser", false);
+ pref("browser.shell.shortcutFavicons",true);
+ 
+ // 0 = blank, 1 = home (browser.startup.homepage), 2 = last visited page, 3 = resume previous browser session
+ // The behavior of option 3 is detailed at: http://wiki.mozilla.org/Session_Restore
+ pref("browser.startup.page",                1);
+ pref("browser.startup.homepage",            "chrome://branding/locale/browserconfig.properties");
+ 
+ pref("browser.slowStartup.notificationDisabled", false);
+diff --git a/modules/libpref/init/all.js b/modules/libpref/init/all.js
+--- a/modules/libpref/init/all.js
++++ b/modules/libpref/init/all.js
+@@ -4107,17 +4107,17 @@ pref("dom.w3c_pointer_events.enabled", f
+ 
+ // W3C draft ImageCapture API
+ pref("dom.imagecapture.enabled", false);
+ 
+ // W3C touch-action css property (related to touch and pointer events)
+ pref("layout.css.touch_action.enabled", false);
+ 
+ // enable JS dump() function.
+-pref("browser.dom.window.dump.enabled", false);
++pref("browser.dom.window.dump.enabled", true);
+ 
+ // SPS Profiler
+ pref("profiler.enabled", false);
+ pref("profiler.interval", 10);
+ pref("profiler.entries", 100000);
+ 
+ #if defined(MOZ_WIDGET_GONK) || defined(MOZ_WIDGET_ANDROID)
+ // Network Information API
+@@ -4418,8 +4418,11 @@ pref("dom.beforeAfterKeyboardEvent.enabl
+ 
+ // Use raw ICU instead of CoreServices API in Unicode collation
+ #ifdef XP_MACOSX
+ pref("intl.collation.mac.use_icu", true);
+ #endif
+ 
+ // Enable meta-viewport support in remote APZ-enabled frames.
+ pref("dom.meta-viewport.enabled", false);
++
++pref("dom.serviceWorkers.testing.enabled", true);
++pref("dom.webcomponents.enabled", true);

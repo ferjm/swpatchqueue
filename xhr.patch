@@ -1,0 +1,107 @@
+# HG changeset patch
+# Parent d6c70357ae9a92f30eec1028fcf9ec5821863848
+# User Andrea Marchesini <amarchesini@mozilla.com>
+
+diff --git a/dom/workers/XMLHttpRequest.cpp b/dom/workers/XMLHttpRequest.cpp
+--- a/dom/workers/XMLHttpRequest.cpp
++++ b/dom/workers/XMLHttpRequest.cpp
+@@ -2377,17 +2377,16 @@ XMLHttpRequest::SetResponseType(XMLHttpR
+ 
+ void
+ XMLHttpRequest::GetResponse(JSContext* /* unused */,
+                             JS::MutableHandle<JS::Value> aResponse,
+                             ErrorResult& aRv)
+ {
+   if (NS_SUCCEEDED(mStateData.mResponseTextResult) &&
+       mStateData.mResponse.isUndefined()) {
+-    MOZ_ASSERT(mStateData.mResponseText.Length());
+     MOZ_ASSERT(NS_SUCCEEDED(mStateData.mResponseResult));
+ 
+     JSString* str =
+       JS_NewUCStringCopyN(mWorkerPrivate->GetJSContext(),
+                           mStateData.mResponseText.get(),
+                           mStateData.mResponseText.Length());
+     if (!str) {
+       aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+diff --git a/dom/workers/test/bug1132924_worker.js b/dom/workers/test/bug1132924_worker.js
+new file mode 100644
+--- /dev/null
++++ b/dom/workers/test/bug1132924_worker.js
+@@ -0,0 +1,10 @@
++onmessage = function() {
++  var a = new XMLHttpRequest();
++  a.open('GET', 'empty.html', false);
++  a.onreadystatechange = function() {
++    if (a.readyState == 4) {
++      postMessage(a.response);
++    }
++  }
++  a.send(null);
++}
+diff --git a/dom/workers/test/empty.html b/dom/workers/test/empty.html
+new file mode 100644
+diff --git a/dom/workers/test/mochitest.ini b/dom/workers/test/mochitest.ini
+--- a/dom/workers/test/mochitest.ini
++++ b/dom/workers/test/mochitest.ini
+@@ -95,16 +95,18 @@ support-files =
+   worker_wrapper.js
+   bug1060621_worker.js
+   bug1062920_worker.js
+   webSocket_sharedWorker.js
+   bug1104064_worker.js
+   worker_consoleAndBlobs.js
+   bug1132395_sharedWorker.js
+   worker_bug1132436.js
++  bug1132924_worker.js
++  empty.html
+ 
+ [test_404.html]
+ [test_atob.html]
+ [test_blobConstructor.html]
+ [test_blobWorkers.html]
+ [test_bug1002702.html]
+ [test_bug949946.html]
+ [test_bug1010784.html]
+@@ -198,8 +200,9 @@ skip-if = buildapp == 'b2g' || toolkit =
+ [test_bug978260.html]
+ [test_webSocket_sharedWorker.html]
+ skip-if = buildapp == 'b2g' || toolkit == 'android' || e10s #bug 982828
+ [test_websocket_pref.html]
+ [test_bug1104064.html]
+ [test_consoleAndBlobs.html]
+ [test_bug1132395.html]
+ [test_bug1132436.html]
++[test_bug1132924.html]
+diff --git a/dom/workers/test/test_bug1132924.html b/dom/workers/test/test_bug1132924.html
+new file mode 100644
+--- /dev/null
++++ b/dom/workers/test/test_bug1132924.html
+@@ -0,0 +1,28 @@
++<!--
++  Any copyright is dedicated to the Public Domain.
++  http://creativecommons.org/publicdomain/zero/1.0/
++-->
++<!DOCTYPE HTML>
++<html>
++<head>
++  <title>Test for 1132924</title>
++  <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
++  <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
++</head>
++<body>
++
++<script class="testbody" type="text/javascript">
++
++SimpleTest.waitForExplicitFinish();
++var w = new Worker('bug1132924_worker.js');
++w.onmessage = function(event) {
++  ok(true, "We are still alive.");
++  SimpleTest.finish();
++}
++
++w.postMessage('go');
++
++</script>
++</pre>
++</body>
++</html>

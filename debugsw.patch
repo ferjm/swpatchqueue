@@ -1,0 +1,63 @@
+# HG changeset patch
+# User Fernando Jimenez <ferjmoreno@gmail.com>
+# Parent  daaf06e2d4f6e969004dac2a25be070924ba2780
+
+diff --git a/dom/workers/ServiceWorkerManager.cpp b/dom/workers/ServiceWorkerManager.cpp
+--- a/dom/workers/ServiceWorkerManager.cpp
++++ b/dom/workers/ServiceWorkerManager.cpp
+@@ -510,16 +510,18 @@ public:
+ 
+     if (mJobType == REGISTER_JOB) {
+       nsRefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+       nsRefPtr<ServiceWorkerManager::ServiceWorkerDomainInfo> domainInfo =
+         swm->GetDomainInfo(mScope);
+       MOZ_ASSERT(domainInfo);
+       mRegistration = domainInfo->GetRegistration(mScope);
+ 
++      printf_stderr("ServiceWorkerRegisterJob - mRegistration %d", (mRegistration != nullptr));
++
+       if (mRegistration) {
+         nsRefPtr<ServiceWorkerInfo> newest = mRegistration->Newest();
+         if (newest && mScriptSpec.Equals(newest->GetScriptSpec()) &&
+             mScriptSpec.Equals(mRegistration->mScriptSpec)) {
+           mRegistration->mPendingUninstall = false;
+           Succeed();
+           Done(NS_OK);
+           return;
+@@ -848,16 +850,36 @@ CopyPrincipal(nsIPrincipal** aPrincipal,
+   nsresult rv =
+     ssm->GetLoadContextCodebasePrincipal(aDoc->GetDocumentURIObject(),
+                                          aDoc->GetLoadContext(),
+                                          getter_AddRefs(copy));
+   if (NS_WARN_IF(NS_FAILED(rv))) {
+     return rv;
+   }
+ 
++  uint32_t appId;
++  rv = copy->GetAppId(&appId);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  bool isInBrowserElement;
++  rv = copy->GetIsInBrowserElement(&isInBrowserElement);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsCOMPtr<nsIURI> uri;
++  rv = copy->GetURI(getter_AddRefs(uri));
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  nsAutoCString prePath;
++  rv = uri->GetPrePath(prePath);
++  nsAutoString stringURI;
++  AppendUTF8toUTF16(prePath, stringURI);
++
++  printf_stderr("ServiceWorkerManager CopyPrincipal - appId %d isInBrowserElement %d uri %s\n", appId, isInBrowserElement,
++                NS_ConvertUTF16toUTF8(stringURI).get());
++
+   copy.forget(aPrincipal);
+   return NS_OK;
+ }
+ } // anonymous namespace
+ 
+ // If we return an error code here, the ServiceWorkerContainer will
+ // automatically reject the Promise.
+ NS_IMETHODIMP

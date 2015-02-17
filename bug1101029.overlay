@@ -1,0 +1,316 @@
+# HG changeset patch
+# Parent b67489a65e49751b2b8f5c0d0fae26ef4f225c83
+# User Fernando Jimenez Moreno <ferjmoreno@gmail.com>
+Bug 1101029 - Overlay iframe on top of front-most app. r=roc
+
+diff --git a/dom/apps/PermissionsTable.jsm b/dom/apps/PermissionsTable.jsm
+--- a/dom/apps/PermissionsTable.jsm
++++ b/dom/apps/PermissionsTable.jsm
+@@ -210,16 +210,22 @@ this.PermissionsTable =  { geolocation: 
+                              certified: ALLOW_ACTION
+                            },
+                            attention: {
+                              app: DENY_ACTION,
+                              trusted: DENY_ACTION,
+                              privileged: DENY_ACTION,
+                              certified: ALLOW_ACTION
+                            },
++                           "global-clickthrough-overlay": {
++                             app: DENY_ACTION,
++                             trusted: DENY_ACTION,
++                             privileged: ALLOW_ACTION,
++                             certified: ALLOW_ACTION
++                           },
+                            "moz-attention": {
+                              app: DENY_ACTION,
+                              trusted: DENY_ACTION,
+                              privileged: ALLOW_ACTION,
+                              certified: ALLOW_ACTION,
+                              substitute: ["attention"]
+                            },
+                            "webapps-manage": {
+diff --git a/dom/base/nsFrameLoader.cpp b/dom/base/nsFrameLoader.cpp
+--- a/dom/base/nsFrameLoader.cpp
++++ b/dom/base/nsFrameLoader.cpp
+@@ -2198,16 +2198,30 @@ NS_IMETHODIMP
+ nsFrameLoader::DeactivateRemoteFrame() {
+   if (mRemoteBrowser) {
+     mRemoteBrowser->Deactivate();
+     return NS_OK;
+   }
+   return NS_ERROR_UNEXPECTED;
+ }
+ 
++void
++nsFrameLoader::ActivateUpdateHitRegion() {
++  if (mRemoteBrowser) {
++    unused << mRemoteBrowser->SendSetUpdateHitRegion(true);
++  }
++}
++
++void
++nsFrameLoader::DeactivateUpdateHitRegion() {
++  if (mRemoteBrowser) {
++    unused << mRemoteBrowser->SendSetUpdateHitRegion(false);
++  }
++}
++
+ NS_IMETHODIMP
+ nsFrameLoader::SendCrossProcessMouseEvent(const nsAString& aType,
+                                           float aX,
+                                           float aY,
+                                           int32_t aButton,
+                                           int32_t aClickCount,
+                                           int32_t aModifiers,
+                                           bool aIgnoreRootScrollFrame)
+diff --git a/dom/base/nsFrameLoader.h b/dom/base/nsFrameLoader.h
+--- a/dom/base/nsFrameLoader.h
++++ b/dom/base/nsFrameLoader.h
+@@ -219,16 +219,19 @@ public:
+    * Applies a new set of sandbox flags. These are merged with the sandbox
+    * flags from our owning content's owning document with a logical OR, this
+    * ensures that we can only add restrictions and never remove them.
+    */
+   void ApplySandboxFlags(uint32_t sandboxFlags);
+ 
+   void GetURL(nsString& aURL);
+ 
++  void ActivateUpdateHitRegion();
++  void DeactivateUpdateHitRegion();
++
+ private:
+ 
+   void SetOwnerContent(mozilla::dom::Element* aContent);
+ 
+   bool ShouldUseRemoteProcess();
+ 
+   /**
+    * Is this a frameloader for a bona fide <iframe mozbrowser> or
+diff --git a/dom/ipc/TabChild.cpp b/dom/ipc/TabChild.cpp
+--- a/dom/ipc/TabChild.cpp
++++ b/dom/ipc/TabChild.cpp
+@@ -3038,16 +3038,29 @@ TabChild::RecvDestroy()
+ 
+   return true;
+ }
+ 
+ bool
+ TabChild::RecvSetUpdateHitRegion(const bool& aEnabled)
+ {
+     mUpdateHitRegion = aEnabled;
++
++    // We need to trigger a repaint of the child frame to ensure that it
++    // recomputes and sends its region.
++    if (mUpdateHitRegion) {
++      nsCOMPtr<nsIDocument> document(GetDocument());
++      NS_ENSURE_TRUE(document, false);
++      nsCOMPtr<nsIPresShell> presShell = document->GetShell();
++      NS_ENSURE_TRUE(presShell, false);
++      nsRefPtr<nsPresContext> presContext = presShell->GetPresContext();
++      NS_ENSURE_TRUE(presContext, false);
++      presContext->InvalidatePaintedLayers();
++    }
++
+     return true;
+ }
+ 
+ bool
+ TabChild::RecvSetIsDocShellActive(const bool& aIsActive)
+ {
+     nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
+     if (docShell) {
+diff --git a/layout/base/nsPresContext.h b/layout/base/nsPresContext.h
+--- a/layout/base/nsPresContext.h
++++ b/layout/base/nsPresContext.h
+@@ -1153,21 +1153,22 @@ public:
+ #ifdef RESTYLE_LOGGING
+   // Controls for whether debug information about restyling in this
+   // document should be output.
+   bool RestyleLoggingEnabled() const { return mRestyleLoggingEnabled; }
+   void StartRestyleLogging() { mRestyleLoggingEnabled = true; }
+   void StopRestyleLogging() { mRestyleLoggingEnabled = false; }
+ #endif
+ 
++  void InvalidatePaintedLayers();
++
+ protected:
+   // May be called multiple times (unlink, destructor)
+   void Destroy();
+ 
+-  void InvalidatePaintedLayers();
+   void AppUnitsPerDevPixelChanged();
+ 
+   void HandleRebuildUserFontSet() {
+     mPostedFlushUserFontSet = false;
+     FlushUserFontSet();
+   }
+ 
+   void HandleRebuildCounterStyles() {
+diff --git a/layout/base/tests/chrome/chrome.ini b/layout/base/tests/chrome/chrome.ini
+--- a/layout/base/tests/chrome/chrome.ini
++++ b/layout/base/tests/chrome/chrome.ini
+@@ -6,16 +6,17 @@ support-files =
+   bug551434_childframe.html
+   chrome_content_integration_window.xul
+   chrome_over_plugin_window.xul
+   default_background_window.xul
+   dialog_with_positioning_window.xul
+   no_clip_iframe_subdoc.html
+   no_clip_iframe_window.xul
+   passpointerevents_window.html
++  passpointerevents_dynamically_window.html
+   printpreview_bug396024_helper.xul
+   printpreview_bug482976_helper.xul
+   printpreview_helper.xul
+   transformed_scrolling_repaints_3_window.html
+   file_bug1018265.xul
+ 
+ [test_bug370436.html]
+ [test_bug396367-1.html]
+@@ -40,16 +41,17 @@ support-files=bug1041200_window.html
+ skip-if = buildapp == 'mulet'
+ [test_default_background.xul]
+ [test_dialog_with_positioning.html]
+ [test_fixed_bg_scrolling_repaints.html]
+ [test_leaf_layers_partition_browser_window.xul]
+ skip-if = (!debug) || (toolkit == "cocoa") # Disabled on Mac because of Bug 748219
+ [test_no_clip_iframe.xul]
+ [test_passpointerevents.html]
++[test_passpointerevents_dynamic.html]
+ [test_prerendered_transforms.html]
+ [test_printpreview.xul]
+ [test_printpreview_bug396024.xul]
+ [test_printpreview_bug482976.xul]
+ [test_scroll_selection_into_view.html]
+ support-files=scroll_selection_into_view_window.html
+ [test_scrolling_repaints.html]
+ [test_transformed_scrolling_repaints.html]
+diff --git a/layout/base/tests/chrome/passpointerevents_dynamically_window.html b/layout/base/tests/chrome/passpointerevents_dynamically_window.html
+new file mode 100644
+--- /dev/null
++++ b/layout/base/tests/chrome/passpointerevents_dynamically_window.html
+@@ -0,0 +1,28 @@
++<!DOCTYPE HTML>
++<html>
++<head>
++  <title>Test that mozpasspointerevents works after setting it dynamically</title>
++</head>
++<body onload="startTest()">
++<iframe id="f" style="border:none; width:200px; height:200px; pointer-events:none"
++        src="data:text/html,<html style='pointer-events:none'><div style='margin:100px; width:100px; height:100px; background:yellow; pointer-events:auto'>">
++</iframe>
++
++<script type="application/javascript">
++var SimpleTest = window.opener.SimpleTest;
++var is = window.opener.is;
++
++function startTest() {
++  var f = document.getElementById("f");
++  f.setAttribute("mozpasspointerevents", true);
++  var fRect = f.getBoundingClientRect();
++  var e1 = document.elementFromPoint(fRect.left + 10, fRect.top + 10);
++  is(e1, document.body, "check point in transparent region of the iframe");
++  var e2 = document.elementFromPoint(fRect.left + 110, fRect.top + 110);
++  is(e2, f, "check point in opaque region of the iframe");
++  window.close();
++  SimpleTest.finish();
++}
++</script>
++</body>
++</html>
+diff --git a/layout/base/tests/chrome/test_passpointerevents_dynamic.html b/layout/base/tests/chrome/test_passpointerevents_dynamic.html
+new file mode 100644
+--- /dev/null
++++ b/layout/base/tests/chrome/test_passpointerevents_dynamic.html
+@@ -0,0 +1,21 @@
++<!DOCTYPE HTML>
++<html>
++<head>
++  <title>Test that mozpasspointerevents works after setting it dynamically</title>
++  <script type="application/javascript" src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
++  <script type="application/javascript" src="chrome://mochikit/content/chrome-harness.js"></script>
++  <link rel="stylesheet" type="text/css" href="chrome://mochikit/content/tests/SimpleTest/test.css"/>
++</head>
++<body>
++
++<pre id="test">
++<script type="application/javascript">
++SimpleTest.waitForExplicitFinish();
++
++var root = getRootDirectory(window.location.href);
++window.openDialog(root + "passpointerevents_dynamically_window.html",
++                  "passpointerevents", "chrome,width=400,height=400");
++</script>
++</pre>
++</body>
++</html>
+diff --git a/layout/generic/nsSubDocumentFrame.cpp b/layout/generic/nsSubDocumentFrame.cpp
+--- a/layout/generic/nsSubDocumentFrame.cpp
++++ b/layout/generic/nsSubDocumentFrame.cpp
+@@ -33,16 +33,17 @@
+ #include "nsIScrollableFrame.h"
+ #include "nsIObjectLoadingContent.h"
+ #include "nsLayoutUtils.h"
+ #include "FrameLayerBuilder.h"
+ #include "nsPluginFrame.h"
+ #include "nsContentUtils.h"
+ #include "nsIPermissionManager.h"
+ #include "nsServiceManagerUtils.h"
++#include "nsIDOMMutationEvent.h"
+ 
+ using namespace mozilla;
+ using mozilla::layout::RenderFrameParent;
+ 
+ static nsIDocument*
+ GetDocumentFromView(nsView* aView)
+ {
+   NS_PRECONDITION(aView, "");
+@@ -304,21 +305,19 @@ nsSubDocumentFrame::PassPointerEventsToC
+       }
+ 
+       nsCOMPtr<nsIPermissionManager> permMgr =
+         services::GetPermissionManager();
+       if (permMgr) {
+         uint32_t permission = nsIPermissionManager::DENY_ACTION;
+         permMgr->TestPermissionFromPrincipal(GetContent()->NodePrincipal(),
+                                              "embed-apps", &permission);
+-
+         return permission == nsIPermissionManager::ALLOW_ACTION;
+       }
+   }
+-
+   return false;
+ }
+ 
+ static void
+ WrapBackgroundColorInOwnLayer(nsDisplayListBuilder* aBuilder,
+                               nsIFrame* aFrame,
+                               nsDisplayList* aList)
+ {
+@@ -888,16 +887,26 @@ nsSubDocumentFrame::AttributeChanged(int
+     // Retrieve the attributes
+     nsIntSize margins = GetMarginAttributes();
+ 
+     // Notify the frameloader
+     nsRefPtr<nsFrameLoader> frameloader = FrameLoader();
+     if (frameloader)
+       frameloader->MarginsChanged(margins.width, margins.height);
+   }
++  else if (aAttribute == nsGkAtoms::mozpasspointerevents) {
++    nsRefPtr<nsFrameLoader> frameloader = FrameLoader();
++    if (frameloader) {
++      if (aModType == nsIDOMMutationEvent::ADDITION) {
++        frameloader->ActivateUpdateHitRegion();
++      } else if (aModType == nsIDOMMutationEvent::REMOVAL) {
++        frameloader->DeactivateUpdateHitRegion();
++      }
++    }
++  }
+ 
+   return NS_OK;
+ }
+ 
+ nsIFrame*
+ NS_NewSubDocumentFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
+ {
+   return new (aPresShell) nsSubDocumentFrame(aContext);

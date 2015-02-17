@@ -1,0 +1,8 @@
+# HG changeset patch
+# User Nikhil Marathe <nsm.nikhil@gmail.com>
+# Date 1423246111 28800
+#      Fri Feb 06 10:08:31 2015 -0800
+# Node ID 43aef21e2d432ef2a8a0a53890aed49b1ffd4a31
+# Parent 262374ed35f0befb6902a718c359d76cc1c311a7
+Bug 1127882 - Fix Promise include.
+

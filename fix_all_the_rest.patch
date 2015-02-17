@@ -1,0 +1,31 @@
+# HG changeset patch
+# Parent 00e1616908a7b5c9525e7eef90a7813751aa7916
+# User Andrea Marchesini <amarchesini@mozilla.com>
+diff --git a/dom/workers/ServiceWorkerManager.cpp b/dom/workers/ServiceWorkerManager.cpp
+--- a/dom/workers/ServiceWorkerManager.cpp
++++ b/dom/workers/ServiceWorkerManager.cpp
+@@ -2349,23 +2349,18 @@ ServiceWorkerManager::IsControlled(nsIDo
+   *aIsControlled = !!registration;
+   return NS_OK;
+ }
+ 
+ nsresult
+ ServiceWorkerManager::GetDocumentRegistration(nsIDocument* aDoc,
+                                               ServiceWorkerRegistrationInfo** aRegistrationInfo)
+ {
+-  nsRefPtr<ServiceWorkerDomainInfo> domainInfo = GetDomainInfo(aDoc);
+-  if (!domainInfo) {
+-    return NS_ERROR_FAILURE;
+-  }
+-
+   nsRefPtr<ServiceWorkerRegistrationInfo> registration;
+-  if (!domainInfo->mControlledDocuments.Get(aDoc, getter_AddRefs(registration))) {
++  if (!mControlledDocuments.Get(aDoc, getter_AddRefs(registration))) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+   // If the document is controlled, the current worker MUST be non-null.
+   if (!registration->mActiveWorker) {
+     return NS_ERROR_NOT_AVAILABLE;
+   }
+ 
